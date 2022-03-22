@@ -60,15 +60,21 @@ python -m yelp_preprocess [--yelp_data_dir YELP_DATA_DIR] [--output_dir OUTPUT_D
 
 ### 3. Longformer finetuning
 
+Run to finetune the Longformer evaluation model:
 ```
 python -m longformer_finetune
 ```
 
+The following summarization generation and evaluation code will not work without this model existing.
+
 ### 4. Run summarization generators
 
-(DecSum, random sentence selector, text-only summarization, model-only summarization)
+Run once each for each type of summary (`SUMMARY_TYPE`) being evaluated:
+```
+python -m generate_summaries --summary_type SUMMARY_TYPE
+```
 
-TODO
+TODO text-only summarization, model-only summarization
 
 ### 5. Evaluate
 

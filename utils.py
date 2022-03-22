@@ -1,9 +1,12 @@
 import json
 import gzip
-
 from sklearn.metrics import f1_score, mean_squared_error
 import pandas as pd
 import datasets
+
+import constants
+
+### Dataset input/output helpers
 
 def dump_jsonl_gz(obj, outpath):
     # obj is list of json
@@ -30,6 +33,8 @@ def load_yelp_dataset(filepath):
             # 'per_text_label': entry["scores"],
         })
     return datasets.Dataset.from_pandas(pd.DataFrame(df_contents))
+
+### Model training and evaluation helpers
 
 def tokenization(batched_text):
     result = tokenizer(batched_text["text"], padding="max_length", truncation=True, max_length=constants.MAX_SEQ_LENGTH)

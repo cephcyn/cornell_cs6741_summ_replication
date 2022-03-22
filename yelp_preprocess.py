@@ -13,6 +13,7 @@ from datetime import datetime
 import logging
 import random
 import pandas as pd
+
 import utils
 import constants
 
@@ -54,22 +55,26 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
 
     # Required parameters
-    parser.add_argument("--yelp_data_dir",
-                        default=constants.YELP_DATA_DIR,
-                        type=str,
-                        help="")
-    parser.add_argument("--output_dir",
-                        default=constants.OUTPUT_DIR,
-                        type=str,
-                        help="")
-    parser.add_argument("--data_split",
-                        action='store_true', 
-                        default=True,
-                        help="")
-    parser.add_argument("--num_review",
-                        type=int,
-                        default=constants.NUM_REVIEWS,
-                        help="Number of reviews for computing average rating")    
+    parser.add_argument(
+        "--yelp_data_dir",
+        default=constants.YELP_DATA_DIR,
+        type=str,
+        help="")
+    parser.add_argument(
+        "--output_dir",
+        default=constants.OUTPUT_DIR,
+        type=str,
+        help="")
+    parser.add_argument(
+        "--data_split",
+        action='store_true', 
+        default=True,
+        help="")
+    parser.add_argument(
+        "--num_review",
+        type=int,
+        default=constants.NUM_REVIEWS,
+        help="Number of reviews for computing average rating")    
     
     args = parser.parse_args() 
     logging.info(f"args: {args}")
