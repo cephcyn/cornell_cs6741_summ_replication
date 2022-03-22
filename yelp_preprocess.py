@@ -13,17 +13,8 @@ from datetime import datetime
 import logging
 import random
 import pandas as pd
-
-# Default values for the cmd arguments
-YELP_DATA_DIR = "/data/jz549_data/data_6741_repl"
-OUTPUT_DIR = "/data/jz549_data/data_6741_repl_output"
-NUM_REVIEWS = 50
-
-# Filenames for different components of the Yelp dataset
-DATASET_FNAME_BUSINESS = "yelp_academic_dataset_business.json"
-DATASET_FNAME_REVIEW = "yelp_academic_dataset_review.json"
-DATASET_PERC_TRAIN = 0.64
-DATASET_PERC_DEV = 0.16
+import utils
+import constants
 
 logging.basicConfig(format='%(asctime)s - %(message)s', level=logging.INFO)
 logging.info('Admin logged in')
@@ -64,11 +55,11 @@ if __name__ == "__main__":
 
     # Required parameters
     parser.add_argument("--yelp_data_dir",
-                        default=YELP_DATA_DIR,
+                        default=constants.YELP_DATA_DIR,
                         type=str,
                         help="")
     parser.add_argument("--output_dir",
-                        default=OUTPUT_DIR,
+                        default=constants.OUTPUT_DIR,
                         type=str,
                         help="")
     parser.add_argument("--data_split",
@@ -77,7 +68,7 @@ if __name__ == "__main__":
                         help="")
     parser.add_argument("--num_review",
                         type=int,
-                        default=NUM_REVIEWS,
+                        default=constants.NUM_REVIEWS,
                         help="Number of reviews for computing average rating")    
     
     args = parser.parse_args() 
@@ -89,7 +80,7 @@ if __name__ == "__main__":
         logging.info(f'Output directory created.')
 
     restaurant_business_ids = set()
-    with open(os.path.join(args.yelp_data_dir, DATASET_FNAME_BUSINESS), "r") as f:    
+    with open(os.path.join(args.yelp_data_dir, constants.DATASET_FNAME_BUSINESS), "r") as f:    
         for line in f:  
             if line:    
                 json_content = json.loads(line)
@@ -104,7 +95,7 @@ if __name__ == "__main__":
     logging.info(f'Creating grouped reviews...')
     if not os.path.exists(grouped_reviews_filepath):
         logging.info(f'Grouped reviews not exist. Building grouped reviews at {grouped_reviews_filepath}')
-        convert_data(os.path.join(args.yelp_data_dir, DATASET_FNAME_REVIEW), grouped_reviews_filepath)
+        convert_data(os.path.join(args.yelp_data_dir, constants.DATASET_FNAME_REVIEW), grouped_reviews_filepath)
         logging.info(f'Grouped reviews file built')
 
     logging.info(f"converting grouped reviews into resutaurant only reviews and compute average of first {args.num_review} reviews")
@@ -134,16 +125,10 @@ if __name__ == "__main__":
             logging.info(f'Split datapath not exist. Create split data dir at {split_datapath}')
             os.makedirs(split_datapath, exist_ok=True)
         
-        def dump_jsonl_gz(obj, outpath):
-            # obj is list of json
-            with gzip.open(outpath, "wt") as fout:
-                for o in obj:
-                    fout.write("%s\n" % json.dumps(o))
-        
         splits = {
-            "train": DATASET_PERC_TRAIN, 
-            "dev": DATASET_PERC_DEV, 
-            "test": 1-DATASET_PERC_TRAIN-DATASET_PERC_DEV
+            "train": constants.DATASET_PERC_TRAIN, 
+            "dev": constants.DATASET_PERC_DEV, 
+            "test": 1-constants.DATASET_PERC_TRAIN-constants.DATASET_PERC_DEV
         }
         split_ids_datapath = os.path.join(split_datapath, f"preprocess_{list(splits.keys())[-1]}_business_ids.csv")
         if not os.path.exists(split_ids_datapath):
@@ -163,10 +148,7 @@ if __name__ == "__main__":
         for s in splits:
             split_ids[s] = set(pd.read_csv(os.path.join(split_datapath, f"preprocess_{s}_business_ids.csv")).business.values)
         
-        reviews = []
-        with gzip.open(out_file, 'rt') as f:
-            for line in f:
-                reviews.append(json.loads(line))
+        reviews = utils.load_jsonl_gz(out_file)
             
         for split, ids in split_ids.items():
             split_reviews = []
@@ -175,7 +157,7 @@ if __name__ == "__main__":
                     split_reviews.append(review)
 
             storepath = os.path.join(split_datapath, f"{split}.jsonl.gz")
-            dump_jsonl_gz(split_reviews, storepath)
+            utils.dump_jsonl_gz(split_reviews, storepath)
             logging.info(f"Data split length: {split} ({len(split_reviews)}), stored at: {storepath}")
 
     logging.info("Finished!")
