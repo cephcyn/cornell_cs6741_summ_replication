@@ -3,7 +3,7 @@ import random
 import logging
 import os
 import itertools
-from multiprocessing import Pool
+import pickle
 from transformers import AutoTokenizer, AutoModelForSequenceClassification
 from transformers import Trainer
 import datasets
@@ -18,10 +18,6 @@ import psutil
 
 import utils
 import constants
-
-logging.basicConfig(format='%(asctime)s - %(message)s', level=logging.INFO)
-logging.info('Admin logged in')
-psutil.cpu_count(logical = False)
 
 # Split merged text blob into distinct sentences, with their ordering IDs and distinct token counts
 # Takes mergedtext, returns [(position, sentence, tokencount, input_ids, attention_mask), ...]
@@ -73,7 +69,7 @@ def generate_summary_random(
     dataset_entry, entry_sentences, token_limit=constants.SUMMARY_TOKEN_LIMIT
 ):
     # create shuffling of sentences
-    shuffled_sentences = entry_sentences
+    shuffled_sentences = entry_sentences.copy()
     # use the business ID string as a fixed seed to make things replicatable
     random.Random(dataset_entry["business"]).shuffle(shuffled_sentences)
 
@@ -94,7 +90,7 @@ def generate_summary_random(
 # Returns a full dataset line
 # Note: if gamma_distinct!=0, then sentbert is required
 def generate_summary_decsum(
-    dataset_entry, entry_sentences, model, tokenizer, sentbert,
+    dataset_entry, entry_sentences, model_trainer, tokenizer, sentbert,
     alpha_faithful, beta_represent, gamma_distinct,
     beam_width=constants.DECSUM_BEAM_WIDTH,
     token_limit=constants.SUMMARY_TOKEN_LIMIT, 
@@ -105,7 +101,7 @@ def generate_summary_decsum(
         raise ValueError("sentbert is None, should be passed when gamma_distinct!=0")
 
     # define faithfulness metric
-    def objective_f(selected, all_sentences, model):
+    def objective_f(selected, all_sentences, model_trainer):
         if alpha_faithful==0:
             return 0
         raise NotImplementedError()
@@ -134,13 +130,11 @@ def generate_summary_decsum(
             "label": [e[0] for e in entry_sentences],
         }).map(lambda x: tokenizer(x["text"], padding="max_length", truncation=True, max_length=constants.MAX_SEQ_LENGTH))
         config_dataset.set_format('torch', columns=['input_ids', 'attention_mask', 'label'])
-        # setup the trainer...
-        trainer = Trainer(
-            model=model,
-        )
         # run predictions per-sentence
-        full_sentence_preds = trainer.predict(test_dataset=config_dataset)[0]
+        full_sentence_preds = model_trainer.predict(test_dataset=config_dataset)[0]
         full_sentence_preds = np.reshape(full_sentence_preds, (len(full_sentence_preds),))
+        # clear out the dataset in memory
+        config_dataset = None
 
     # Apply initial SentBERT pass if we need to
     full_cos_similarity = None
@@ -171,7 +165,7 @@ def generate_summary_decsum(
             # in keeping with pseudocode, ONLY consider the representativeness metric on first step
             new_options.append([
                 (
-                    (not is_first_step)*alpha_faithful*objective_f(considering_selected, sentences, model)
+                    (not is_first_step)*alpha_faithful*objective_f(considering_selected, sentences, model_trainer)
                     + beta_represent*objective_r(considering_selected, full_sentence_preds)
                     + (not is_first_step)*gamma_distinct*objective_d(considering_selected, full_cos_similarity)
                 ),
@@ -195,13 +189,16 @@ def generate_summary_decsum(
     }
 
 if __name__ == "__main__":
+    logging.basicConfig(format='%(asctime)s - %(message)s', level=logging.INFO)
+    logging.info('Admin logged in')
+    
     parser = argparse.ArgumentParser()
 
     # Required parameters
     parser.add_argument(
         "--summary_type",
         type=str,
-        choices=['decsum011', 'decsum010', 'decsum001', 'random'],
+        choices=['random', 'presumm', 'decsum011', 'decsum010', 'decsum001'],
         help="Summary type to create based on test dataset")
     
     args = parser.parse_args() 
@@ -223,16 +220,29 @@ if __name__ == "__main__":
         constants.LONGFORMER_MODEL_TYPE,
         max_length=constants.MAX_SEQ_LENGTH,
     )
-    # Initialize multiprocessing
-    pool = Pool()
+    # initialize sentence splits
+    logging.info(f"pre-parsing individual sentences")
+    testset_sentences_cache_fname = os.path.join(
+        constants.BACKUPS_DIR, 
+        f"{constants.NUM_REVIEWS}reviews", 
+        f"sentencesplit_test.jsonl.gz"
+    )
+    # check if we can load from cache
+    if os.path.exists(testset_sentences_cache_fname):
+        logging.info(f"pre-parse backup exists, loading from {testset_sentences_cache_fname}")
+        with open(testset_sentences_cache_fname, "rb") as f:
+            testset_sentences = pickle.load(f)
+    else:
+        logging.info(f"pre-parse backup does not exist, will export to {testset_sentences_cache_fname}")
+        testset_sentences = [split_sentences(" ".join(e["reviews"]), nlp, tokenizer) for e in testset]
+        with open(testset_sentences_cache_fname, "wb") as f:
+            pickle.dump(testset_sentences, f)
     
     # Generate summary now
     if args.summary_type == "random":
         logging.info(f"GENERATING RANDOM SUMMARIES")
-        logging.info(f"pre-parsing individual sentences")
-        testset_sentences = [split_sentences(" ".join(e["reviews"]), nlp, tokenizer) for e in testset]
         logging.info(f"mapping individual sentences into results")
-        summaries_random = pool.starmap(
+        summaries_random = itertools.starmap(
             generate_summary_random, 
             zip(
                 testset,
@@ -247,8 +257,15 @@ if __name__ == "__main__":
         logging.info(f"DONE GENERATING RANDOM SUMMARIES, NOW SAVING TO {random_outfile}")
         utils.dump_jsonl_gz(summaries_random, random_outfile)
     elif args.summary_type == "presumm":
+        logging.info(f"GENERATING PRESUMM SUMMARIES")
         # TODO
-        pass
+        raise NotImplementedError()
+        presumm_outfile = os.path.join(
+            constants.SUMMARY_DIR,
+            f"{constants.NUM_REVIEWS}reviews",
+            f"t{constants.SUMMARY_TOKEN_LIMIT}_presumm.jsonl.gz",
+        )
+        logging.info(f"DONE GENERATING PRESUMM SUMMARIES, NOW SAVING TO {presumm_outfile}")
     elif args.summary_type[:6]=="decsum":
         logging.info(f"GENERATING DECSUM SUMMARIES")
         logging.info(f"need to initialize model for running...")
@@ -264,19 +281,21 @@ if __name__ == "__main__":
             model_save_location, 
             num_labels=1,
         )
-        logging.info(f"loaded last checkpoint of finetuned longformer from {model_save_location}")
+        # setup the trainer...
+        model_trainer = Trainer(
+            model=model,
+        )
+        logging.info(f"loaded trainer of finetuned longformer from {model_save_location}")
         opt_f = int(args.summary_type[6])
         opt_r = int(args.summary_type[7])
         opt_d = int(args.summary_type[8])
-        logging.info(f"pre-parsing individual sentences")
-        testset_sentences = [split_sentences(" ".join(e["reviews"]), nlp, tokenizer) for e in testset]
         logging.info(f"mapping individual sentences into results")
         summaries_decsum = itertools.starmap(
             generate_summary_decsum,
             zip(
                 testset,
                 testset_sentences,
-                itertools.repeat(model),
+                itertools.repeat(model_trainer),
                 itertools.repeat(tokenizer),
                 itertools.repeat(sentbert),
                 itertools.repeat(opt_f), 
@@ -287,7 +306,7 @@ if __name__ == "__main__":
         decsum_outfile = os.path.join(
             constants.SUMMARY_DIR,
             f"{constants.NUM_REVIEWS}reviews",
-            f"t{constants.SUMMARY_TOKEN_LIMIT}_decsum_{opt_f}{opt_r}{opt_d}_beam{constants.DECSUM_BEAM_WIDTH}.jsonl.gz",
+            f"t{constants.SUMMARY_TOKEN_LIMIT}_decsum{opt_f}{opt_r}{opt_d}_beam{constants.DECSUM_BEAM_WIDTH}.jsonl.gz",
         )
         logging.info(f"DONE GENERATING DECSUM SUMMARIES, NOW SAVING TO {decsum_outfile}")
         utils.dump_jsonl_gz(summaries_decsum, decsum_outfile)

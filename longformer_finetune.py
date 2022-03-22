@@ -9,10 +9,10 @@ import datasets
 import utils
 import constants
 
-logging.basicConfig(format='%(asctime)s - %(message)s', level=logging.INFO)
-logging.info('Admin logged in')
-
 if __name__ == "__main__":
+    logging.basicConfig(format='%(asctime)s - %(message)s', level=logging.INFO)
+    logging.info('Admin logged in')
+
     # load longformer tokenizer
     logging.info(f"loading tokenizer={constants.LONGFORMER_MODEL_TYPE}")
     tokenizer = AutoTokenizer.from_pretrained(

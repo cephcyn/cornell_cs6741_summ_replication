@@ -62,6 +62,9 @@ Evaluation:
 | Full (oracle) | 0        | 0.1299 |
 |---------------|----------|--------|
 | Random        | 0.4017   | 0.4697 |
+| PreSumm       | TODO   | TODO |
+|---------------|----------|--------|
+| IG            | TODO   | TODO |
 |---------------|----------|--------|
 | DecSum(0,1,1) | TODO     | TODO|
 | DecSum(0,1,0) | TODO     | TODO|
@@ -75,7 +78,7 @@ Runtimes:
 - Generating DecSum(0,0,1) summaries for the test dataset took approximately 15-ish minutes
 - Generating DecSum(0,1,0) summaries for the test dataset took TODO minutes
 - Generating DecSum(0,1,1) summaries for the test dataset took TODO minutes
-- Scoring summarization methods each took approximately 5-ish minutes
+- Scoring summarization methods each took approximately 10-ish minutes
 
 ### Appendix: Tutorials referenced when implementing all of this...
 
