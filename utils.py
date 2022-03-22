@@ -36,7 +36,7 @@ def load_yelp_dataset(filepath):
 
 ### Model training and evaluation helpers
 
-def tokenization(batched_text):
+def tokenization(batched_text, tokenizer):
     result = tokenizer(batched_text["text"], padding="max_length", truncation=True, max_length=constants.MAX_SEQ_LENGTH)
     result["label"] = batched_text["label"]
     return result
@@ -55,3 +55,11 @@ def compute_mse_metrics(pred):
         # 'precision': precision,
         # 'recall': recall
     }
+
+### Scoring helpers
+
+# Calculate the MSE-full metric, given two matching-index sets of predictions
+def compute_mse_full(pred1, pred2):
+    diff = pred1 - pred2
+    diff_sq = diff**2
+    return sum(diff_sq)/len(diff_sq)

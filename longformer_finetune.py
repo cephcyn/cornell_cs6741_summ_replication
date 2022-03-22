@@ -30,7 +30,7 @@ if __name__ == "__main__":
         ))
     # Reformat datasets
     for dkey in yelp.keys():
-        yelp[dkey] = yelp[dkey].map(utils.tokenization, batched=True, batch_size=len(yelp[dkey]))
+        yelp[dkey] = yelp[dkey].map(lambda bt: utils.tokenization(bt, tokenizer), batched=True, batch_size=len(yelp[dkey]))
         yelp[dkey].set_format('torch', columns=['input_ids', 'attention_mask', 'label'])
     logging.info(f"Datasets padded, example has {len(yelp["train"]["input_ids"][0])} tokens and label={yelp["train"]["label"][0]}")
     # Load pretrained, non-finetuned model

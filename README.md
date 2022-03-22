@@ -36,7 +36,7 @@ Finetuning Longformer:
 - I use the exact same training hyperparameters as the authors describe in their appendix, other than changing the number of workers and the batch size.
 
 Summarization:
-- Their appendix mentions that all sentence-based summaries are limited to N=50 tokens (words).
+- They mention that all sentence-based summaries are limited to N=50 tokens (words), in keeping with the average summary length of BART.
 - DecSum: Given a quality function for a set of sentences selected that can take into account (faithfulness, representativeness, and diversity), does beam search (with default width=4) to select a subset of all review sentences that does best on this quality function while still being under the N-token limit.
   I order the sentences in this subset the same way they were initially ordered in the set of reviews in the test set, same as the original authors describe in the appendix.
   (They did do an exploration into how much impact sentence ordering had to do with final quality, and there did seem to be an impact. However, the main table I am trying to replicate defaulted to using original sentence ordering.)
@@ -51,21 +51,31 @@ Summarization:
   - The authors never clearly said how the token limit for the Random summarization method was implemented, but based on the codebase it seems to be done similarly to the DecSum method.
 
 Evaluation:
-- TODO
+- For each summarization method implemented, I calculated both MSE-Full and MSE metrics.
+- The MSE-Full metric calculates MSE between the predictions made by finetuned-Longformer on the set of full-text reviews in the test set, and the predictions made by the same model on the set of generated summaries.
+- The MSE metric calculates MSE between the true labels in the test set (the actual 50-review average score) and the predictions made in the generated summaries.
 
 ### Results
 
-TODO
+| Summarizer    | MSE-Full | MSE    |
+|---------------|----------|--------|
+| Full (oracle) | 0        | 0.1299 |
+|---------------|----------|--------|
+| Random        | 0.4017   | 0.4697 |
+|---------------|----------|--------|
+| DecSum(0,1,1) | TODO     | TODO|
+| DecSum(0,1,0) | TODO     | TODO|
+| DecSum(0,0,1) | TODO     | TODO|
 
 Runtimes:
-- Collecting the dataset and preprocessing took approximately 5 minutes?
+- Collecting the dataset and preprocessing took approximately 5-ish minutes
 - Finetuning `longformer-base-4096` took slightly under 3 hours (excluding restarting when out-of-memory?) on a GeForce RTX 3090.
   - However, when I was initially trying to run this finetuning on Google Colab, the estimated finetuning time was over 36 hours (and it kicked me off of the server after about 4 hours of finetuning time).
-- Generating random summaries for the test dataset took approximately 5 minutes?
-- Generating DecSum(0,0,1) summaries for the test dataset took approximately 15 minutes?
+- Generating random summaries for the test dataset took approximately 10-ish minutes
+- Generating DecSum(0,0,1) summaries for the test dataset took approximately 15-ish minutes
 - Generating DecSum(0,1,0) summaries for the test dataset took TODO minutes
 - Generating DecSum(0,1,1) summaries for the test dataset took TODO minutes
-- TODO
+- Scoring summarization methods each took approximately 5-ish minutes
 
 ### Appendix: Tutorials referenced when implementing all of this...
 
@@ -79,26 +89,32 @@ Demo training scripts referenced:
 
 ### 1. Environment setup
 
-Use Python 3.8
+See commands below to set up the codebase and the Python environment:
 
 ```
+# Set up a python 3.8 environment first
+# Then clone
+git clone git@github.com:cephcyn/cornell_cs6741_summ_replication.git
+# Install dependencies
 pip install -r requirements.txt
-pip3 install torch==1.11.0+cu113 torchvision==0.12.0+cu113 torchaudio===0.11.0+cu113 -f https://download.pytorch.org/whl/cu113/torch_stable.html
+pip install torch==1.11.0+cu113 -f https://download.pytorch.org/whl/cu113/torch_stable.html
 python -m spacy download en_core_web_sm
 ```
 
-Edit the `constants.py` file to alter experiment hyperparameters.
-Arguments given in individual commands will override these defaults.
+If you want to, edit the `constants.py` file to alter experiment hyperparameters.
+Arguments given in some individual commands below will override these defaults.
 
 ### 2. Dataset
 Download the Yelp JSON dataset in `.tgz` format: https://www.yelp.com/dataset/download
 
 Unzip the dataset to `YELP_DATA_DIR`:
+
 ```
 tar -xvzf YELP_DATA_TGZ -C YELP_DATA_DIR
 ```
 
 Preprocess the dataset into the task format (this uses a lightly modified version of the preprocessing script from the original paper codebase):
+
 ```
 python -m yelp_preprocess [--yelp_data_dir YELP_DATA_DIR] [--output_dir OUTPUT_DIR] [--num_review NUM_REVIEWS]
 ```
@@ -106,6 +122,7 @@ python -m yelp_preprocess [--yelp_data_dir YELP_DATA_DIR] [--output_dir OUTPUT_D
 ### 3. Longformer finetuning
 
 Run to finetune the Longformer evaluation model:
+
 ```
 python -m longformer_finetune
 ```
@@ -114,13 +131,17 @@ The following summarization generation and evaluation code will not work without
 
 ### 4. Run summarization generators
 
-Run once each for each type of summary (`SUMMARY_TYPE`) being evaluated:
+Run the summarization generator for each type of summary being evaluated:
+
 ```
-python -m generate_summaries --summary_type SUMMARY_TYPE
+python -m generate_summaries --summary_type random
+python -m generate_summaries --summary_type decsum011
+python -m generate_summaries --summary_type decsum010
+python -m generate_summaries --summary_type decsum001
 ```
 
 TODO impl text-only summarization, model-only summarization
 
 ### 5. Evaluate
 
-TODO cleanup this code...
+TODO cleanup this code and put it in a standalone script
