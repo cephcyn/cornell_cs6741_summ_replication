@@ -37,14 +37,21 @@ Finetuning Longformer:
 
 Summarization:
 - Their appendix mentions that all sentence-based summaries are limited to N=50 tokens (words).
-- (Random) Prioritizes sentences in a random order, terminates adding sentences upon encountering one that will exceed the N-token limit, and then re-orders all sentences so that they are sorted the same way as they were in the original text.
-- (DecSum) I exclude the "faithfulness" component of the DecSum summary quality metric, as that was reported to take over 10 hours per run on the test set.
-- (DecSum) My implementation of DecSum doesn't follow their pseudocode / algorithm that they describe in "Algorithm 1" of the paper perfectly, as there seemed to be a typo in that algorithm.
-  - The "X <- X - x" line causes X to decrease in size, which doesn't match up with how the overall loss functions are defined.
-  - I would add an additional "Xoriginal <- X" before the while loop and replace all instances of "X" in the loss function calls with "Xoriginal".
-- (DecSum) Token count is based on SpaCy model token counting, *not* Longformer model token counting.
-  - The original paper is not clear about how token counts were done. The implementation uses SpaCy model token counting.
-  - The difference between these: SpaCy tends to use clearer rules for tokenization, and generally counts distinct words. Longformer tokenizer seems to pick up on word prefixes, suffixes, or other modifiers more often.
+- DecSum: Given a quality function for a set of sentences selected that can take into account (faithfulness, representativeness, and diversity), does beam search (with default width=4) to select a subset of all review sentences that does best on this quality function while still being under the N-token limit.
+  I order the sentences in this subset the same way they were initially ordered in the set of reviews in the test set, same as the original authors describe in the appendix.
+  (They did do an exploration into how much impact sentence ordering had to do with final quality, and there did seem to be an impact. However, the main table I am trying to replicate defaulted to using original sentence ordering.)
+  - I excluded the "faithfulness" component of the DecSum summary quality metric, as that was reported to take over 10 hours per run on the test set and I didn't end up having time to let this run. (Maybe in the short-term future...)
+  - My implementation of DecSum doesn't follow their pseudocode / algorithm that they describe in "Algorithm 1" of the paper perfectly, as there seemed to be a typo in that algorithm.
+    - The "X <- X - x" line causes X to decrease in size, which doesn't match up with how the overall loss functions are defined.
+    - I would add an additional "Xoriginal <- X" before the while loop and replace all instances of "X" in the loss function calls with "Xoriginal".
+  - Token count is based on SpaCy model token counting, *not* Longformer model token counting.
+    - The original paper is not clear about how token counts were done. The implementation uses SpaCy model token counting.
+    - The difference between these: SpaCy tends to use clearer rules for tokenization, and generally counts distinct words. Longformer tokenizer seems to pick up on word prefixes, suffixes, or other modifiers more often.
+- Random: Prioritizes sentences in a random order, terminates adding sentences upon encountering one that will exceed the N-token limit.
+  - The authors never clearly said how the token limit for the Random summarization method was implemented, but based on the codebase it seems to be done similarly to the DecSum method.
+
+Evaluation:
+- TODO
 
 ### Results
 
@@ -58,6 +65,7 @@ Runtimes:
 - Generating DecSum(0,0,1) summaries for the test dataset took approximately 15 minutes?
 - Generating DecSum(0,1,0) summaries for the test dataset took TODO minutes
 - Generating DecSum(0,1,1) summaries for the test dataset took TODO minutes
+- TODO
 
 ### Appendix: Tutorials referenced when implementing all of this...
 
