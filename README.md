@@ -65,7 +65,7 @@ Evaluation:
 |---------------|----------|--------|
 | DecSum(0,1,1) | TODO     | TODO|
 | DecSum(0,1,0) | TODO     | TODO|
-| DecSum(0,0,1) | TODO     | TODO|
+| DecSum(0,0,1) | 0.5183   | 0.5788 |
 
 Runtimes:
 - Collecting the dataset and preprocessing took approximately 5-ish minutes
