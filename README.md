@@ -14,7 +14,7 @@ An example that the authors give to contrast these two scenarios is with medical
 
 The authors make several clear contributions:
 - They build a dataset for this task (predicting Yelp score ratings based on the text of a review)
-- They propose three goals of a decision-focused summarization (faithfulness, representativeness, and sentence diversity)
+- They propose three goals of a decision-focused summarization (faithfulness, representativeness, and sentence distinctness/diversity)
 - They describe a summarization algorithm `DecSum` that selects sentences from a larger set of reviews based on these goals as a way of generating a summary
 - They evaluate `DecSum` against three text-based summarization methods (random text selection, `BART`, and `PreSumm`) and two decision-model-based summarization methods (`IG`, `Attention`) using mean squared error between predictions made by a decision model on the original texts and the summaries as the reference metric.
 - They evaluate these same summarization methods against each other with crowdsourced human decisions, judging on classification accuracy.
@@ -22,6 +22,8 @@ The authors make several clear contributions:
 I focus on replicating parts of the first four points: building a dataset, implementing `DecSum`, implementing a subset of the other summarization methods they used, and comparing their mean squared error performance.
 
 ### Method
+
+All data and code for this replication was newly collected and written, except for the `yelp_preprocess.py` script which is lightly adapted from the authors' public codebase.
 
 Dataset collection:
 - The authors don't include their full dataset in the repository, so I re-downloaded the most recent version of the Yelp dataset and re-did preprocessing on that dataset with a new randomly selected train/dev/test dataset split in the same ratio that they used.
@@ -36,6 +38,7 @@ Finetuning Longformer:
 - I use the exact same training hyperparameters as the authors describe in their appendix, other than changing the number of workers and the batch size.
 
 Summarization:
+- The public codebase does not contain any implementation of any summarization methods other than DecSum, so I needed to implement those from scratch with little reference to work off of.
 - They mention that all sentence-based summaries are limited to N=50 tokens (words), in keeping with the average summary length of BART.
 - DecSum: Given a quality function for a set of sentences selected that can take into account (faithfulness, representativeness, and diversity), does beam search (with default width=4) to select a subset of all review sentences that does best on this quality function while still being under the N-token limit.
   I order the sentences in this subset the same way they were initially ordered in the set of reviews in the test set, same as the original authors describe in the appendix.
@@ -49,8 +52,18 @@ Summarization:
     - The difference between these: SpaCy tends to use clearer rules for tokenization, and generally counts distinct words. Longformer tokenizer seems to pick up on word prefixes, suffixes, or other modifiers more often.
 - Random: Prioritizes sentences in a random order, terminates adding sentences upon encountering one that will exceed the N-token limit.
   - The authors never clearly said how the token limit for the Random summarization method was implemented, but based on the codebase it seems to be done similarly to the DecSum method.
+- PreSumm: Prioritizes sentences according to "importance" metrics judged by a `distilbert-base-uncased-ext-sum` model, as implemented in a third-party library `transformersum` ([link](https://github.com/HHousen/TransformerSum))
+  - `distilbert-base-uncased` is the model the authors describe using, but their paper includes a footnote that links directly to the `TransformerSum` model checkpoint download page, with no model with that exact name that matches.
+    I chose to use `distilbert-base-uncased-ext-sum`, as it is the model that seems most similar.
+  - As with the other summarization methods, I use the same sentence prioritization, cutoff based on maximum token count, and re-sorting approach.
+  - Since `distilbert-base-uncased-ext-sum` has an input token count limitation, I attempted to truncate the reviews being passed as input to a maximum of 510 tokens.
+    (The true limit in the model is 512, but I wanted to avoid off-by-one errors...)
+  - However, the `transformersum` implementation was still raising a "Token indices sequence length is longer than the specified maximum sequence length ... Running this sequence through the model will result in indexing errors" alert (with a much smaller difference between input and limit after text truncation, but still).
+    I am not sure how to resolve this, and ended up giving up and hoping the summaries produced would not be too buggy.
 
 Evaluation:
+- The public codebase does not contain any evaluation methods, so I needed to implement those from scratch.
+  (... Fortunately, MSE and MSE-Full are easier to implement than the reference summarization methods.)
 - For each summarization method implemented, I calculated both MSE-Full and MSE metrics.
 - The MSE-Full metric calculates MSE between the predictions made by finetuned-Longformer on the set of full-text reviews in the test set, and the predictions made by the same model on the set of generated summaries.
 - The MSE metric calculates MSE between the true labels in the test set (the actual 50-review average score) and the predictions made in the generated summaries.
@@ -62,23 +75,36 @@ Evaluation:
 | Full (oracle) | 0        | 0.1299 |
 |---------------|----------|--------|
 | Random        | 0.4017   | 0.4697 |
-| PreSumm       | TODO   | TODO |
 |---------------|----------|--------|
-| IG            | TODO   | TODO |
-|---------------|----------|--------|
-| DecSum(0,1,1) | TODO     | TODO|
-| DecSum(0,1,0) | TODO     | TODO|
-| DecSum(0,0,1) | 0.5183   | 0.5788 |
+| DecSum(0,1,1) | 0.1838   | 0.2723 |
+| DecSum(0,1,0) | 0.1777   | 0.2537 |
+| DecSum(0,0,1) | 0.5155   | 0.5715 |
 
-Runtimes:
-- Collecting the dataset and preprocessing took approximately 5-ish minutes
+In comparison, here is the results table from the original paper:
+
+![Original paper automated comparison table](readme_figures/repl_table.png "Original paper automated comparison table")
+
+#### Runtimes
+
+- Collecting the dataset and preprocessing took 5-ish minutes
 - Finetuning `longformer-base-4096` took slightly under 3 hours (excluding restarting when out-of-memory?) on a GeForce RTX 3090.
   - However, when I was initially trying to run this finetuning on Google Colab, the estimated finetuning time was over 36 hours (and it kicked me off of the server after about 4 hours of finetuning time).
-- Generating random summaries for the test dataset took approximately 10-ish minutes
-- Generating DecSum(0,0,1) summaries for the test dataset took approximately 15-ish minutes
-- Generating DecSum(0,1,0) summaries for the test dataset took TODO minutes
-- Generating DecSum(0,1,1) summaries for the test dataset took TODO minutes
-- Scoring summarization methods each took approximately 10-ish minutes
+- Generating DecSum(0,0,1) summaries for the test dataset took 10-ish minutes
+  - Excluding 5min of sentence cache generation
+- Generating DecSum(0,1,0) summaries for the test dataset took 10-ish minutes
+  - Excluding 5min of sentence cache generation
+  - Excluding 8hrs of per-sentence prediction cache generation
+- Generating DecSum(0,1,1) summaries for the test dataset took 10-ish minutes
+  - Excluding 5min of sentence cache generation
+  - Excluding 8hrs of per-sentence prediction cache generation
+  - Excluding 5min of sentence embedding cache generation
+- Generating random summaries for the test dataset took 5-ish minutes
+  - Excluding 5min of sentence cache generation
+- Generating PreSumm summaries for the test dataset took TODO minutes
+  - Excluding 5min of sentence cache generation
+- Evaluating summarization methods each took a trivial amount of time
+  - Excluding 5min of baseline prediction cache generation
+  - Excluding 5min of summary prediction cache generation per summary being evaluated
 
 ### Appendix: Tutorials referenced when implementing all of this...
 
@@ -92,12 +118,12 @@ Demo training scripts referenced:
 
 ### 1. Environment setup
 
-See commands below to set up the codebase and the Python environment:
+See commands below to set up the main codebase and the Python environment:
 
 ```
-# Set up a python 3.8 environment first
-# Then clone
-git clone git@github.com:cephcyn/cornell_cs6741_summ_replication.git
+# Set up a python 3.8 conda environment first
+# Then clone this codebase...
+git clone https://github.com/cephcyn/cornell_cs6741_summ_replication.git
 # Install dependencies
 pip install -r requirements.txt
 pip install torch==1.11.0+cu113 -f https://download.pytorch.org/whl/cu113/torch_stable.html
@@ -106,6 +132,20 @@ python -m spacy download en_core_web_sm
 
 If you want to, edit the `constants.py` file to alter experiment hyperparameters.
 Arguments given in some individual commands below will override these defaults.
+
+#### Running PreSumm summarization
+
+If/when running PreSumm summarization, set up `TransformerSum` packages ([main ref here](https://transformersum.readthedocs.io/en/latest/index.html)).
+
+```
+git clone https://github.com/HHousen/transformersum.git
+cd transformersum
+# Add TransformerSum dependencies to the current environment
+conda env update -f environment.yml
+```
+
+Download the `distilbert-base-uncased-ext-sum` pretrained on the CNN/DM dataset from [here](https://transformersum.readthedocs.io/en/latest/extractive/models-results.html#pretrained-ext).
+Rename it and save it in the path described in `constants.PRESUMM_MODEL_FNAME`.
 
 ### 2. Dataset
 Download the Yelp JSON dataset in `.tgz` format: https://www.yelp.com/dataset/download
@@ -138,13 +178,22 @@ Run the summarization generator for each type of summary being evaluated:
 
 ```
 python -m generate_summaries --summary_type random
+python -m generate_summaries --summary_type presumm
 python -m generate_summaries --summary_type decsum011
 python -m generate_summaries --summary_type decsum010
 python -m generate_summaries --summary_type decsum001
 ```
 
-TODO impl text-only summarization, model-only summarization
+TODO impl model-only summarization
 
 ### 5. Evaluate
 
-TODO cleanup this code and put it in a standalone script
+Run the summarization evaluator for each type of summary that was generated:
+
+```
+python -m score_summaries --summary_type random
+python -m score_summaries --summary_type presumm
+python -m score_summaries --summary_type decsum011
+python -m score_summaries --summary_type decsum010
+python -m score_summaries --summary_type decsum001
+```

@@ -4,8 +4,10 @@ import logging
 import os
 import itertools
 import pickle
+import sys
+import transformers
 from transformers import AutoTokenizer, AutoModelForSequenceClassification
-from transformers import Trainer
+from transformers import Trainer, TrainingArguments
 import datasets
 import spacy
 import torch
@@ -14,7 +16,9 @@ from scipy.stats import wasserstein_distance
 from sklearn.metrics.pairwise import cosine_similarity
 import numpy as np
 import pandas as pd
-import psutil 
+
+sys.path.insert(0,'transformersum/src') # deal with importing transformersum code...
+from extractive import ExtractiveSummarizer
 
 import utils
 import constants
@@ -80,6 +84,47 @@ def generate_summary_random(
         "avg_score": dataset_entry["avg_score"],
     }
 
+# Generate a PreSumm summary: 
+#   1. Pass the full review text to the PreSumm model used
+#   2. Sort sentences by their evaluated quality
+#   3. Include as many sentences as possible until until summary would exceed
+#      [constants.SUMMARY_TOKEN_LIMIT] tokens, remove the rest
+# Takes in a dataset entry and its sentence-split line (position, sentence, tokencount, input_ids, attention_mask)
+# Returns a full dataset line
+def generate_summary_presumm(
+    dataset_entry, entry_sentences, dm_scores, distilbert_model, distilbert_tokenizer,
+    token_limit=constants.SUMMARY_TOKEN_LIMIT, 
+):
+    if dm_scores is None:
+        ### TODO something about passing reviews to TransformerSum to be summarized is still sometimes giving the error:
+        # " Token indices sequence length is longer than the specified maximum sequence length for this model (568 > 512). 
+        # " Running this sequence through the model will result in indexing errors
+        review_text = " ".join(dataset_entry["reviews"])
+        review_encoded = distilbert_tokenizer.encode(review_text)
+        review_encoded = [tl[:min(510, len(tl))] for tl in review_encoded]
+        # decode back to plaintext
+        review_decoded = distilbert_tokenizer.decode(review_encoded)
+        # filter out "[CLS]" at beginning, "[SEP]" at end
+        review_decoded = [(e[5:] if e[:5]=="[CLS]" else e) for e in review_decoded]
+        review_decoded = [(e[:-5] if e[-5:]=="[SEP]" else e) for e in review_decoded]
+        dm_scores = distilbert_model.predict(review_decoded, raw_scores=True)
+    # merge sentence priority scores with existing sentence information
+    # ASSUMES THAT DISTILBERT SENTENCE RECOGNITION IS SAME AS SPACY
+    if len(dm_scores) != len(entry_sentences):
+        raise ValueError(f"len(dm_scores)={len(dm_scores)} != en(entry_sentences)={en(entry_sentences)}")
+    selected_sentences = list(zip([e[1] for e in dm_scores], entry_sentences))
+    # sort by descending score (since higher score = higher priority)
+    selected_sentences.sort(key=lambda x: x[0], reverse=True)
+    # remove the sentence priority scores
+    selected_sentences = [e[1] for e in selected_sentences]
+    
+    return {
+        "reviews": cleanup_sentences(selected_sentences, token_limit),
+        "scores": dataset_entry["scores"],
+        "business": dataset_entry["business"],
+        "avg_score": dataset_entry["avg_score"],
+    }
+
 # Generate a DecSum summary: 
 #   1. cut up reviews into sentences
 #   2. select the {sentence_count_limit} number of sentences that minimizes 
@@ -92,13 +137,20 @@ def generate_summary_random(
 def generate_summary_decsum(
     dataset_entry, entry_sentences, model_trainer, tokenizer, sentbert,
     alpha_faithful, beta_represent, gamma_distinct,
+    f_helper=None, r_helper_sentpreds=None, d_helper_sentbert=None,
     beam_width=constants.DECSUM_BEAM_WIDTH,
     token_limit=constants.SUMMARY_TOKEN_LIMIT, 
     sentence_count_limit=constants.SUMMARY_SENTENCE_LIMIT, 
 ):
     # Do argument checks
+    if (alpha_faithful==0) and (beta_represent==0) and (gamma_distinct==0):
+        raise ValueError(f"All 3 main hyperparameters cannot be set to 0.")
     if (gamma_distinct!=0) and (sentbert is None):
-        raise ValueError("sentbert is None, should be passed when gamma_distinct!=0")
+        raise ValueError(f"sentbert is None, should be passed when gamma_distinct!=0")
+    if (d_helper_sentbert is not None) and (len(entry_sentences)!=len(d_helper_sentbert)):
+        raise ValueError(f"len(entry_sentences)={len(entry_sentences)} != len(d_helper_sentbert)={len(d_helper_sentbert)}")
+    if (r_helper_sentpreds is not None) and (len(entry_sentences)!=len(r_helper_sentpreds)):
+        raise ValueError(f"len(entry_sentences)={len(entry_sentences)} != len(r_helper_sentpreds)={len(r_helper_sentpreds)}")
 
     # define faithfulness metric
     def objective_f(selected, all_sentences, model_trainer):
@@ -121,26 +173,36 @@ def generate_summary_decsum(
         # Note that the diagonals were set to 0, so it'll avoid calculating self-similarity
         return sum(np.apply_along_axis(max, 1, selected_cos_similarity))
     
+    # Representativeness helper:
     # calculate prediction distributions per-sentence if we need to
-    full_sentence_preds = None
-    if beta_represent!=0:
-        # setup the dataset format
-        config_dataset = datasets.Dataset.from_dict({
-            "text": [e[1] for e in entry_sentences],
-            "label": [e[0] for e in entry_sentences],
-        }).map(lambda x: tokenizer(x["text"], padding="max_length", truncation=True, max_length=constants.MAX_SEQ_LENGTH))
-        config_dataset.set_format('torch', columns=['input_ids', 'attention_mask', 'label'])
-        # run predictions per-sentence
-        full_sentence_preds = model_trainer.predict(test_dataset=config_dataset)[0]
-        full_sentence_preds = np.reshape(full_sentence_preds, (len(full_sentence_preds),))
-        # clear out the dataset in memory
-        config_dataset = None
+    full_sentence_preds = r_helper_sentpreds
+    if (beta_represent!=0):
+        if (full_sentence_preds is None):
+            # setup the dataset format
+            config_dataset = datasets.Dataset.from_dict({
+                "text": [e[1] for e in entry_sentences],
+                "label": [e[0] for e in entry_sentences],
+            }).map(lambda x: tokenizer(x["text"], padding="max_length", truncation=True, max_length=constants.MAX_SEQ_LENGTH))
+            config_dataset.set_format('torch', columns=['input_ids', 'attention_mask', 'label'])
+            # run predictions per-sentence
+            full_sentence_preds = model_trainer.predict(test_dataset=config_dataset)[0]
+            full_sentence_preds = np.reshape(full_sentence_preds, (len(full_sentence_preds),))
+            # clear out the dataset in memory
+            config_dataset = None
 
+    # Distinctiveness helper:
     # Apply initial SentBERT pass if we need to
     full_cos_similarity = None
-    if gamma_distinct!=0:
-        full_cos_similarity = cosine_similarity(sentbert.encode(entry_sentences, convert_to_numpy=True))
-        # We're always going to be ignoring sentence self-similarity
+    if (gamma_distinct!=0):
+        sentbert_encodings = d_helper_sentbert
+        # Calculate encodings if we need to
+        if (sentbert_encodings is None):
+            sentbert_encodings = sentbert.encode([e[1] for e in entry_sentences], convert_to_numpy=True)
+        # Calculate similarity
+        full_cos_similarity = cosine_similarity(
+            sentbert_encodings
+        )
+        # We're always going to be ignoring sentence self-similarity, verify this is true
         np.fill_diagonal(full_cos_similarity, 0)
 
     # select the sentences that will be included with beam search!
@@ -165,7 +227,7 @@ def generate_summary_decsum(
             # in keeping with pseudocode, ONLY consider the representativeness metric on first step
             new_options.append([
                 (
-                    (not is_first_step)*alpha_faithful*objective_f(considering_selected, sentences, model_trainer)
+                    (not is_first_step)*alpha_faithful*objective_f(considering_selected, entry_sentences, model_trainer)
                     + beta_represent*objective_r(considering_selected, full_sentence_preds)
                     + (not is_first_step)*gamma_distinct*objective_d(considering_selected, full_cos_similarity)
                 ),
@@ -240,15 +302,15 @@ if __name__ == "__main__":
     
     # Generate summary now
     if args.summary_type == "random":
-        logging.info(f"GENERATING RANDOM SUMMARIES")
+        logging.info(f"GENERATING RANDOM SUMMARIES")        
         logging.info(f"mapping individual sentences into results")
-        summaries_random = itertools.starmap(
+        summaries_random = list(itertools.starmap(
             generate_summary_random, 
             zip(
                 testset,
                 testset_sentences, 
             ),
-        )
+        ))
         random_outfile = os.path.join(
             constants.SUMMARY_DIR,
             f"{constants.NUM_REVIEWS}reviews",
@@ -258,14 +320,59 @@ if __name__ == "__main__":
         utils.dump_jsonl_gz(summaries_random, random_outfile)
     elif args.summary_type == "presumm":
         logging.info(f"GENERATING PRESUMM SUMMARIES")
-        # TODO
-        raise NotImplementedError()
+        logging.info(f"need to initialize DistilBert tokenizer and model for running...")
+        distilbert_tokenizer = AutoTokenizer.from_pretrained("distilbert-base-uncased")
+        distilbert_model = ExtractiveSummarizer.load_from_checkpoint(constants.PRESUMM_MODEL_FNAME, strict=False)
+        logging.info(f"generating mass dm_score (per-review summary sentence scoring)")
+        dm_score_cache_fname = os.path.join(
+            constants.BACKUPS_DIR,
+            f"{constants.NUM_REVIEWS}reviews",
+            f"presummdmscore_test.jsonl.gz"
+        )
+        dm_score_helper = itertools.repeat(None)
+        # check if we can load from cache
+        if os.path.exists(dm_score_cache_fname):
+            logging.info(f"dm_score backup exists, loading from {dm_score_cache_fname}")
+            with open(dm_score_cache_fname, "rb") as f:
+                dm_score_helper = pickle.load(f)
+        else:
+            logging.info(f"dm_score backup does not exist, will export to {dm_score_cache_fname}")
+            ### TODO something about passing reviews to TransformerSum to be summarized is still sometimes giving the error:
+            # " Token indices sequence length is longer than the specified maximum sequence length for this model (568 > 512). 
+            # " Running this sequence through the model will result in indexing errors
+            flattened_reviews = [" ".join(e["reviews"]) for e in testset]
+            flattened_reviews_encoded = [distilbert_tokenizer.encode(e) for e in flattened_reviews]
+            # trim the text lengths
+            flattened_reviews_encoded = [tl[:min(510, len(tl))] for tl in flattened_reviews_encoded]
+            # decode back to plaintext
+            flattened_reviews_decoded = distilbert_tokenizer.batch_decode(flattened_reviews_encoded)
+            # filter out "[CLS] " at beginning, " [SEP]" at end
+            flattened_reviews_decoded = [(e[6:] if e[:6]=="[CLS] " else e) for e in flattened_reviews_decoded]
+            flattened_reviews_decoded = [(e[:-6] if e[-6:]==" [SEP]" else e) for e in flattened_reviews_decoded]
+            logging.info(f"max toklen = {max([len(distilbert_tokenizer.encode(e)) for e in flattened_reviews_decoded])}")
+            # run the extractive summary scorer
+            dm_score_helper = [distilbert_model.predict(e, raw_scores=True) for e in flattened_reviews_decoded]
+            # Export to backup/cache
+            with open(dm_score_cache_fname, "wb") as f:
+                pickle.dump(dm_score_helper, f)
+        logging.info(f"mapping individual sentences into results")
+        summaries_presumm = list(itertools.starmap(
+            generate_summary_presumm, 
+            zip(
+                testset,
+                testset_sentences, 
+                dm_score_helper,
+                itertools.repeat(distilbert_model),
+                itertools.repeat(distilbert_tokenizer),
+            ),
+        ))
         presumm_outfile = os.path.join(
             constants.SUMMARY_DIR,
             f"{constants.NUM_REVIEWS}reviews",
             f"t{constants.SUMMARY_TOKEN_LIMIT}_presumm.jsonl.gz",
         )
         logging.info(f"DONE GENERATING PRESUMM SUMMARIES, NOW SAVING TO {presumm_outfile}")
+        utils.dump_jsonl_gz(summaries_presumm, presumm_outfile)
     elif args.summary_type[:6]=="decsum":
         logging.info(f"GENERATING DECSUM SUMMARIES")
         logging.info(f"need to initialize model for running...")
@@ -282,27 +389,115 @@ if __name__ == "__main__":
             num_labels=1,
         )
         # setup the trainer...
+        model_trainer_args = TrainingArguments(
+            output_dir = constants.LOGGING_DIR,
+            dataloader_num_workers = constants.FINETUNE_NUM_WORKERS,
+            per_device_eval_batch_size = constants.FINETUNE_EVAL_BATCH_SIZE,
+        )
         model_trainer = Trainer(
             model=model,
+            args=model_trainer_args,
         )
         logging.info(f"loaded trainer of finetuned longformer from {model_save_location}")
         opt_f = int(args.summary_type[6])
         opt_r = int(args.summary_type[7])
+        r_helper_sentpredictions = itertools.repeat(None)
+        if opt_r>0:
+            logging.info(f"generating R-helper (per-sentence predictions)")
+            r_helper_sentpredictions_cache_fname = os.path.join(
+                constants.BACKUPS_DIR, 
+                f"{constants.NUM_REVIEWS}reviews", 
+                f"decsumhelperr_test.jsonl.gz"
+            )
+            # check if we can load from cache
+            if os.path.exists(r_helper_sentpredictions_cache_fname):
+                logging.info(f"R-helper backup exists, loading from {r_helper_sentpredictions_cache_fname}")
+                with open(r_helper_sentpredictions_cache_fname, "rb") as f:
+                    r_helper_sentpredictions = pickle.load(f)
+            else:
+                logging.info(f"R-helper backup does not exist, will export to {r_helper_sentpredictions_cache_fname}")            
+                # create list of [((review ix, sentence ix), sentence data), ...]
+                flattened = [
+                    ((t_i, s_i), testset_sentences[t_i][s_i]) 
+                    for t_i in range(len(testset_sentences)) for s_i in range(len(testset_sentences[t_i]))
+                ]
+                flattened_ixs = [e[0] for e in flattened]
+                flattened_sentences = [e[1] for e in flattened]
+                # setup the dataset format
+                config_dataset = datasets.Dataset.from_dict({
+                    "text": [e[1] for e in flattened_sentences],
+                    "label": [e[0] for e in flattened_sentences],
+                }).map(lambda x: tokenizer(x["text"], padding="max_length", truncation=True, max_length=constants.MAX_SEQ_LENGTH))
+                config_dataset.set_format('torch', columns=['input_ids', 'attention_mask', 'label'])
+                # run predictions per-sentence in same order as above list
+                flattened_predictions = model_trainer.predict(test_dataset=config_dataset)[0]
+                flattened_predictions = np.reshape(flattened_predictions, (len(flattened_predictions),))
+                # clear out the dataset in memory
+                config_dataset = None
+                # smush the predictions into the same layout to match testset_sentences breakdown
+                merged_predictions = dict(zip(flattened_ixs, [e for e in flattened_predictions]))
+                r_helper_sentpredictions = []
+                for t_i in range(len(testset_sentences)):
+                    review_predictions = []
+                    for s_i in range(len(testset_sentences[t_i])):
+                        review_predictions.append(merged_predictions[(t_i, s_i)])
+                    r_helper_sentpredictions.append(np.array(review_predictions, dtype='float32'))
+                # Export to backup/cache
+                with open(r_helper_sentpredictions_cache_fname, "wb") as f:
+                    pickle.dump(r_helper_sentpredictions, f)
         opt_d = int(args.summary_type[8])
+        d_helper_sentencodings = itertools.repeat(None)
+        if opt_d>0:
+            logging.info(f"generating D-helper (sentbert encodings)")
+            d_helper_sentencodings_cache_fname = os.path.join(
+                constants.BACKUPS_DIR, 
+                f"{constants.NUM_REVIEWS}reviews", 
+                f"decsumhelperd_test.jsonl.gz"
+            )
+            # check if we can load from cache
+            if os.path.exists(d_helper_sentencodings_cache_fname):
+                logging.info(f"D-helper backup exists, loading from {d_helper_sentencodings_cache_fname}")
+                with open(d_helper_sentencodings_cache_fname, "rb") as f:
+                    d_helper_sentencodings = pickle.load(f)
+            else:
+                logging.info(f"D-helper backup does not exist, will export to {d_helper_sentencodings_cache_fname}") 
+                # create list of [((review ix, sentence ix), sentence data), ...]
+                flattened = [
+                    ((t_i, s_i), testset_sentences[t_i][s_i]) 
+                    for t_i in range(len(testset_sentences)) for s_i in range(len(testset_sentences[t_i]))
+                ]
+                flattened_ixs = [e[0] for e in flattened]
+                flattened_sentences = [e[1] for e in flattened]
+                # generate encodings in same order as above list
+                flattened_encodings = sentbert.encode([e[1] for e in flattened_sentences], convert_to_numpy=True)
+                # smush the encodings into the same layout to match testset_sentences breakdown
+                merged_encodings = dict(zip(flattened_ixs, [e for e in flattened_encodings]))
+                d_helper_sentencodings = []
+                for t_i in range(len(testset_sentences)):
+                    review_encodings = []
+                    for s_i in range(len(testset_sentences[t_i])):
+                        review_encodings.append(merged_encodings[(t_i, s_i)])
+                    d_helper_sentencodings.append(np.array(review_encodings, dtype='float32'))
+                # Export to backup/cache
+                with open(d_helper_sentencodings_cache_fname, "wb") as f:
+                    pickle.dump(d_helper_sentencodings, f)
         logging.info(f"mapping individual sentences into results")
-        summaries_decsum = itertools.starmap(
+        summaries_decsum = list(itertools.starmap(
             generate_summary_decsum,
             zip(
-                testset,
-                testset_sentences,
-                itertools.repeat(model_trainer),
-                itertools.repeat(tokenizer),
-                itertools.repeat(sentbert),
-                itertools.repeat(opt_f), 
-                itertools.repeat(opt_r), 
-                itertools.repeat(opt_d),
+                testset, # dataset_entry
+                testset_sentences, # entry_sentences
+                itertools.repeat(model_trainer), # model_trainer
+                itertools.repeat(tokenizer), # tokenizer
+                itertools.repeat(sentbert), # sentbert
+                itertools.repeat(opt_f),  # alpha_faithful
+                itertools.repeat(opt_r),  # beta_represent
+                itertools.repeat(opt_d), # gamma_distinct
+                itertools.repeat(None),  # f_helper
+                r_helper_sentpredictions,  # r_helper (sentence predictions)
+                d_helper_sentencodings, # d_helper_sentbert (sentence encodings)
             ),
-        )
+        ))
         decsum_outfile = os.path.join(
             constants.SUMMARY_DIR,
             f"{constants.NUM_REVIEWS}reviews",

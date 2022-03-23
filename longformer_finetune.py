@@ -1,5 +1,6 @@
 import os
 import logging
+import transformers
 from transformers import AutoTokenizer, AutoModelForSequenceClassification
 from transformers import TrainingArguments, Trainer
 import torch
