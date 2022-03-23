@@ -43,7 +43,13 @@ Summarization:
 - DecSum: Given a quality function for a set of sentences selected that can take into account (faithfulness, representativeness, and diversity), does beam search (with default width=4) to select a subset of all review sentences that does best on this quality function while still being under the N-token limit.
   I order the sentences in this subset the same way they were initially ordered in the set of reviews in the test set, same as the original authors describe in the appendix.
   (They did do an exploration into how much impact sentence ordering had to do with final quality, and there did seem to be an impact. However, the main table I am trying to replicate defaulted to using original sentence ordering.)
-  - I excluded the "faithfulness" component of the DecSum summary quality metric, as that was reported to take over 10 hours per run on the test set and I didn't end up having time to let this run. (Maybe in the short-term future...)
+  - The DecSum quality metric includes three components: "faithfulness", "representativeness", and "distinctness/diversity".
+    - I excluded the "faithfulness" component of the DecSum summary quality metric, as that was reported to take over 10 hours per run on the test set and I didn't end up having time to let this run. (Maybe in the short-term future...)
+      However, if I did implement this, it would have been based on calculating loss between prediction of the finetuned-Longformer on a set of sentences currently considered, and the full review sentence set.
+    - The "representativeness" component is the logarithm of Wasserstein distance between the set of all predictions that would be made using the finetuned-Longformer on each sentence being considered individually, and a similar set of all per-sentence predictions across all sentences in the original review.
+      To save time, I calculated the predictions for each sentence in the test set ahead of time and referenced those saved predictions when generating the summary.
+    - The "distinctness/diversity" component is calculated as such: across all sentences that are being considered for summary inclusion, find the other sentence being considered that has maximal cosine similarity (using SentBert embeddings) and sum up those similarity metrics.
+      Again, to save time, I calculated the SentBert embeddings ahead of time.
   - My implementation of DecSum doesn't follow their pseudocode / algorithm that they describe in "Algorithm 1" of the paper perfectly, as there seemed to be a typo in that algorithm.
     - The "X <- X - x" line causes X to decrease in size, which doesn't match up with how the overall loss functions are defined.
     - I would add an additional "Xoriginal <- X" before the while loop and replace all instances of "X" in the loss function calls with "Xoriginal".
@@ -75,6 +81,7 @@ Evaluation:
 | Full (oracle) | 0        | 0.1299 |
 |---------------|----------|--------|
 | Random        | 0.4017   | 0.4697 |
+| PreSumm       | 0.3202   | 0.4572 |
 |---------------|----------|--------|
 | DecSum(0,1,1) | 0.1838   | 0.2723 |
 | DecSum(0,1,0) | 0.1777   | 0.2537 |
@@ -84,10 +91,15 @@ In comparison, here is the results table from the original paper:
 
 ![Original paper automated comparison table](readme_figures/repl_table.png "Original paper automated comparison table")
 
+These results do not match numbers exactly, but the comparison between metrics across the different summarization methods remains accurate.
+`PreSumm` does better than `Random` on the MSE-Full comparison, but don't have much of a difference on the regular MSE comparison.
+Overall, both the `Random` and `PreSumm` summarization methods do better than `DecSum(0,0,1)`, but all other `DecSum` methods are better than the baseline methods.
+For the parameters that I tested for `DecSum`, the more parameters are active, the better the summaries perform.
+
 #### Runtimes
 
 - Collecting the dataset and preprocessing took 5-ish minutes
-- Finetuning `longformer-base-4096` took slightly under 3 hours (excluding restarting when out-of-memory?) on a GeForce RTX 3090.
+- Finetuning `longformer-base-4096` took slightly under 3 hours (excluding times when it crashed when out-of-memory and I had to restart the training process from saved checkpoints) on a GeForce RTX 3090.
   - However, when I was initially trying to run this finetuning on Google Colab, the estimated finetuning time was over 36 hours (and it kicked me off of the server after about 4 hours of finetuning time).
 - Generating DecSum(0,0,1) summaries for the test dataset took 10-ish minutes
   - Excluding 5min of sentence cache generation
@@ -100,8 +112,9 @@ In comparison, here is the results table from the original paper:
   - Excluding 5min of sentence embedding cache generation
 - Generating random summaries for the test dataset took 5-ish minutes
   - Excluding 5min of sentence cache generation
-- Generating PreSumm summaries for the test dataset took TODO minutes
+- Generating PreSumm summaries for the test dataset took 5-ish minutes
   - Excluding 5min of sentence cache generation
+  - Excluding 30min of `distilbert` summarization scoring cache generation
 - Evaluating summarization methods each took a trivial amount of time
   - Excluding 5min of baseline prediction cache generation
   - Excluding 5min of summary prediction cache generation per summary being evaluated
@@ -184,8 +197,6 @@ python -m generate_summaries --summary_type decsum010
 python -m generate_summaries --summary_type decsum001
 ```
 
-TODO impl model-only summarization
-
 ### 5. Evaluate
 
 Run the summarization evaluator for each type of summary that was generated:
@@ -197,3 +208,30 @@ python -m score_summaries --summary_type decsum011
 python -m score_summaries --summary_type decsum010
 python -m score_summaries --summary_type decsum001
 ```
+
+### Additional Notes
+
+The code is not fully cleaned up to create directories when needed.
+Running it from its current state on the repository will likely cause several "directory does not exist" type issues.
+The structure that it is roughly expecting (based on the default `constants.py` setup) is:
+
+```
+root
+  - dataset_raw
+  - dataset
+    - 50reviews
+  - logging
+  - checkpoints
+  - summaries
+    - 50reviews
+  - scoring
+  - backups
+    - 50reviews
+```
+
+If you adjust the constants (especially the review count), be sure to clear out (or backup / change the name of) resources in all directories other than the `dataset_raw` directory, as files saved there do not take adjusted review count into account.
+
+A more general list of directory content dependencies:
+- `dataset` is dependent on `dataset_raw`
+- `logging`, `checkpoints`, `summaries`, `backups` are dependent on `dataset`
+- `scoring` is dependent on `dataset`, `summaries`, `checkpoints`, `backups`

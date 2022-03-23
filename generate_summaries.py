@@ -89,10 +89,10 @@ def generate_summary_random(
 #   2. Sort sentences by their evaluated quality
 #   3. Include as many sentences as possible until until summary would exceed
 #      [constants.SUMMARY_TOKEN_LIMIT] tokens, remove the rest
-# Takes in a dataset entry and its sentence-split line (position, sentence, tokencount, input_ids, attention_mask)
+# Takes in a dataset entry
 # Returns a full dataset line
 def generate_summary_presumm(
-    dataset_entry, entry_sentences, dm_scores, distilbert_model, distilbert_tokenizer,
+    dataset_entry, dm_scores, distilbert_model, distilbert_tokenizer, spacy_nlp,
     token_limit=constants.SUMMARY_TOKEN_LIMIT, 
 ):
     if dm_scores is None:
@@ -108,15 +108,24 @@ def generate_summary_presumm(
         review_decoded = [(e[5:] if e[:5]=="[CLS]" else e) for e in review_decoded]
         review_decoded = [(e[:-5] if e[-5:]=="[SEP]" else e) for e in review_decoded]
         dm_scores = distilbert_model.predict(review_decoded, raw_scores=True)
-    # merge sentence priority scores with existing sentence information
-    # ASSUMES THAT DISTILBERT SENTENCE RECOGNITION IS SAME AS SPACY
-    if len(dm_scores) != len(entry_sentences):
-        raise ValueError(f"len(dm_scores)={len(dm_scores)} != en(entry_sentences)={en(entry_sentences)}")
-    selected_sentences = list(zip([e[1] for e in dm_scores], entry_sentences))
+    # snapshot the sentence indexing from those predictions
+    # and create the sentence-split line
+    # (score, position, sentence, tokencount)
+    selected_sentences = [
+        (
+            dm_scores[i][1], 
+            i, 
+            dm_scores[i][0], 
+            sum([len(s) for s in spacy_nlp(dm_scores[i][0]).sents]),
+        ) 
+        for i in range(len(dm_scores))
+    ]
     # sort by descending score (since higher score = higher priority)
     selected_sentences.sort(key=lambda x: x[0], reverse=True)
     # remove the sentence priority scores
-    selected_sentences = [e[1] for e in selected_sentences]
+    # and convert to standard sentence-split format
+    # (position, sentence, tokencount, input_ids, attention_mask)
+    selected_sentences = [(e[1], e[2], e[3], [], []) for e in selected_sentences]
     
     return {
         "reviews": cleanup_sentences(selected_sentences, token_limit),
@@ -360,10 +369,10 @@ if __name__ == "__main__":
             generate_summary_presumm, 
             zip(
                 testset,
-                testset_sentences, 
                 dm_score_helper,
                 itertools.repeat(distilbert_model),
                 itertools.repeat(distilbert_tokenizer),
+                itertools.repeat(nlp),
             ),
         ))
         presumm_outfile = os.path.join(
