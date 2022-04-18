@@ -233,5 +233,6 @@ If you adjust the constants (especially the review count), be sure to clear out 
 
 A more general list of directory content dependencies:
 - `dataset` is dependent on `dataset_raw`
-- `logging`, `checkpoints`, `summaries`, `backups` are dependent on `dataset`
+- `checkpoints` is dependent on `dataset`
+- `logging`, `summaries`, `backups` are dependent on `checkpoints`, `dataset`
 - `scoring` is dependent on `dataset`, `summaries`, `checkpoints`, `backups`
