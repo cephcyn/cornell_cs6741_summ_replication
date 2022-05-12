@@ -60,7 +60,7 @@ def cleanup_sentences(ordered_sentences, token_limit):
     collected_sentences.sort(key=lambda x: x[2])
     
     # flatten out the sentences back to original contents only
-    return [e[1] for e in collected_sentences]
+    return [e[1] for e in collected_sentences], [e[0] for e in collected_sentences]
 
 # Generate a random summary: 
 #   1. cut up reviews into sentences
@@ -76,12 +76,16 @@ def generate_summary_random(
     shuffled_sentences = entry_sentences.copy()
     # use the business ID string as a fixed seed to make things replicatable
     random.Random(dataset_entry["business"]).shuffle(shuffled_sentences)
+    
+    # cleanup sentences
+    reordered_sentences, reordered_sentence_ixs = cleanup_sentences(shuffled_sentences, token_limit)
 
     return {
-        "reviews": cleanup_sentences(shuffled_sentences, token_limit),
+        "reviews": reordered_sentences,
         "scores": dataset_entry["scores"],
         "business": dataset_entry["business"],
         "avg_score": dataset_entry["avg_score"],
+        "sentence_ix": reordered_sentence_ixs,
     }
 
 # Generate a PreSumm summary: 
@@ -127,11 +131,15 @@ def generate_summary_presumm(
     # (position, sentence, tokencount, input_ids, attention_mask)
     selected_sentences = [(e[1], e[2], e[3], [], []) for e in selected_sentences]
     
+    # cleanup sentences
+    reordered_sentences, reordered_sentence_ixs = cleanup_sentences(selected_sentences, token_limit)
+    
     return {
-        "reviews": cleanup_sentences(selected_sentences, token_limit),
+        "reviews": reordered_sentences,
         "scores": dataset_entry["scores"],
         "business": dataset_entry["business"],
         "avg_score": dataset_entry["avg_score"],
+        "sentence_ix": reordered_sentence_ixs,
     }
 
 # Generate a DecSum summary: 
@@ -251,12 +259,16 @@ def generate_summary_decsum(
         beam_candidates = beam_candidates[:min(4, len(beam_candidates))]
     # we've outrunned the maximum sentence count / ran out of sentences we can add
     selected_sentences = beam_candidates[0][1]
+    
+    # cleanup sentences
+    reordered_sentences, reordered_sentence_ixs = cleanup_sentences(selected_sentences, token_limit)
 
     return {
-        "reviews": cleanup_sentences(selected_sentences, token_limit),
+        "reviews": reordered_sentences,
         "scores": dataset_entry["scores"],
         "business": dataset_entry["business"],
         "avg_score": dataset_entry["avg_score"],
+        "sentence_ix": reordered_sentence_ixs,
     }
 
 if __name__ == "__main__":
