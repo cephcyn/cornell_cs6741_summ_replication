@@ -70,12 +70,18 @@ def cleanup_sentences(ordered_sentences, token_limit):
 # Takes in a dataset entry and its sentence-split line (position, sentence, tokencount, input_ids, attention_mask)
 # Returns a full dataset line
 def generate_summary_random(
-    dataset_entry, entry_sentences, token_limit=constants.SUMMARY_TOKEN_LIMIT
+    dataset_entry, entry_sentences, 
+    random_seed=None,
+    token_limit=constants.SUMMARY_TOKEN_LIMIT,
 ):
     # create shuffling of sentences
     shuffled_sentences = entry_sentences.copy()
-    # use the business ID string as a fixed seed to make things replicatable
-    random.Random(dataset_entry["business"]).shuffle(shuffled_sentences)
+    if random_seed is None:
+        # by default, use the business ID string alone as a fixed seed to make things replicatable
+        random.Random(dataset_entry["business"]).shuffle(shuffled_sentences)
+    else:
+        # otherwise, add in an outside seed for variation between different random summaries
+        random.Random(str(dataset_entry["business"])+str(random_seed)).shuffle(shuffled_sentences)
     
     # cleanup sentences
     reordered_sentences, reordered_sentence_ixs = cleanup_sentences(shuffled_sentences, token_limit)
