@@ -216,7 +216,7 @@ Running it from its current state on the repository will likely cause several "d
 The structure that it is roughly expecting (based on the default `constants.py` setup) is:
 
 ```
-root
+base_directory
   - dataset_raw
   - dataset
     - 50reviews

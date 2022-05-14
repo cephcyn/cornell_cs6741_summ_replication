@@ -1,11 +1,14 @@
+# Base directory where all data relevant to this codebase are stored
+BASE_DIR = "/data/jz549_data/6741_summfinal"
+
 # Filepaths for where data is stored
-YELP_DATA_DIR = "/data/jz549_data/6741_summrepl/dataset_raw"
-OUTPUT_DIR = "/data/jz549_data/6741_summrepl/dataset"
-LOGGING_DIR = "/data/jz549_data/6741_summrepl/logging"
-CHECKPOINT_DIR = "/data/jz549_data/6741_summrepl/checkpoints"
-SUMMARY_DIR = "/data/jz549_data/6741_summrepl/summaries"
-SCORING_DIR = "/data/jz549_data/6741_summrepl/scoring"
-BACKUPS_DIR = "/data/jz549_data/6741_summrepl/backups"
+YELP_DATA_DIR = f"{BASE_DIR}/dataset_raw"
+OUTPUT_DIR = f"{BASE_DIR}/dataset"
+LOGGING_DIR = f"{BASE_DIR}/logging"
+CHECKPOINT_DIR = f"{BASE_DIR}/checkpoints"
+SUMMARY_DIR = f"{BASE_DIR}/summaries"
+SCORING_DIR = f"{BASE_DIR}/scoring"
+BACKUPS_DIR = f"{BASE_DIR}/backups"
 
 # Raw dataset information
 DATASET_FNAME_BUSINESS = "yelp_academic_dataset_business.json"
@@ -33,4 +36,4 @@ SUMMARY_TOKEN_LIMIT = 50
 SUMMARY_SENTENCE_LIMIT = 15
 DECSUM_BEAM_WIDTH = 4
 MULTPOOL_PROCESSES = 16
-PRESUMM_MODEL_FNAME = "/data/jz549_data/6741_summrepl/backups/presumm_model.ckpt"
+PRESUMM_MODEL_FNAME = f"{BASE_DIR}/backups/presumm_model.ckpt"
