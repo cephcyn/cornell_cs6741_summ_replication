@@ -160,6 +160,12 @@ conda env update -f environment.yml
 Download the `distilbert-base-uncased-ext-sum` pretrained on the CNN/DM dataset from [here](https://transformersum.readthedocs.io/en/latest/extractive/models-results.html#pretrained-ext).
 Rename it and save it in the path described in `constants.PRESUMM_MODEL_FNAME`.
 
+(
+TODO: 
+Currently, the summarizer tools are all dependent on TransformerSum packages because of imports in the `generate_summaries.py` tools. 
+Figure out some way to separate these in the future?
+)
+
 ### 2. Dataset
 Download the Yelp JSON dataset in `.tgz` format: https://www.yelp.com/dataset/download
 
@@ -187,7 +193,7 @@ The following summarization generation and evaluation code will not work without
 
 ### 4. Run summarization generators
 
-Run the summarization generator for each type of summary being evaluated:
+Run the summarization generator for each type of summary we want to evaluate:
 
 ```
 python -m generate_summaries --summary_type random

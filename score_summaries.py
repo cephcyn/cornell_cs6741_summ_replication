@@ -12,12 +12,12 @@ import datasets
 import utils
 import constants
 
-summary_paths = {
-    "random": f"t{constants.SUMMARY_TOKEN_LIMIT}_random.jsonl.gz",
-    "presumm": f"t{constants.SUMMARY_TOKEN_LIMIT}_presumm.jsonl.gz",
-    "decsum011": f"t{constants.SUMMARY_TOKEN_LIMIT}_decsum011_beam{constants.DECSUM_BEAM_WIDTH}.jsonl.gz",
-    "decsum010": f"t{constants.SUMMARY_TOKEN_LIMIT}_decsum010_beam{constants.DECSUM_BEAM_WIDTH}.jsonl.gz",
-    "decsum001": f"t{constants.SUMMARY_TOKEN_LIMIT}_decsum001_beam{constants.DECSUM_BEAM_WIDTH}.jsonl.gz",
+summary_type_translations = {
+    "random": f"t{constants.SUMMARY_TOKEN_LIMIT}_random",
+    "presumm": f"t{constants.SUMMARY_TOKEN_LIMIT}_presumm",
+    "decsum011": f"t{constants.SUMMARY_TOKEN_LIMIT}_decsum011_beam{constants.DECSUM_BEAM_WIDTH}",
+    "decsum010": f"t{constants.SUMMARY_TOKEN_LIMIT}_decsum010_beam{constants.DECSUM_BEAM_WIDTH}",
+    "decsum001": f"t{constants.SUMMARY_TOKEN_LIMIT}_decsum001_beam{constants.DECSUM_BEAM_WIDTH}",
 }
 
 def pred_with_cache(src_path, out_path):
@@ -52,18 +52,15 @@ def pred_baseline(trainer, tokenizer):
     )
     return pred_with_cache(baseline_summ_path, baseline_pred_path)
 
-def pred_summary(summ_type, trainer, tokenizer):
-    if summ_type not in summary_paths:
-        raise ValueError("invalid summary type?")
-        
+def pred_summary(summ_name, trainer, tokenizer):        
     summary_summ_path = os.path.join(
         constants.SUMMARY_DIR, 
         f"{constants.NUM_REVIEWS}reviews", 
-        summary_paths[summ_type],
+        f"{summ_name}.jsonl.gz",
     )
     summary_pred_path = os.path.join(
         constants.SCORING_DIR, 
-        f"preds_{summ_type}.pkl",
+        f"preds_{summ_name}.pkl",
     )
     return pred_with_cache(summary_summ_path, summary_pred_path)
 
@@ -75,13 +72,28 @@ if __name__ == "__main__":
 
     # Required parameters
     parser.add_argument(
+        "--summary_name",
+        type=str,
+        help="Filename of generated summaries from the test dataset excluding filetype ending (for example, 't50_random')")
+    parser.add_argument(
         "--summary_type",
         type=str,
         choices=['random', 'presumm', 'decsum011', 'decsum010', 'decsum001'],
-        help="Summary type to create based on test dataset")
+        help="Type of generated summary from the test dataset")
     
     args = parser.parse_args() 
     logging.info(f"args: {args}")
+    
+    if not (args.summary_name or args.summary_type):
+        parser.error('No clear summary source specified, pick exactly one of --summary_type or --summary_name')
+    if (args.summary_name and args.summary_type):
+        parser.error('No clear summary source specified, pick exactly one of --summary_type or --summary_name')
+    
+    summary_fname = None
+    if args.summary_name:
+        summary_fname = args.summary_name
+    if args.summary_type:
+        summary_fname = summary_type_translations[args.summary_type]
     
     logging.info(f"Importing finetuned models and relevant tokenizers")
     tokenizer = AutoTokenizer.from_pretrained(
@@ -113,9 +125,9 @@ if __name__ == "__main__":
     baseline_preds = pred_baseline(trainer, tokenizer)
     # load in summary predictions
     logging.info(f"generating/retrieving summary={args.summary_type} predictions")
-    summary_preds = pred_summary(args.summary_type, trainer, tokenizer)
+    summary_preds = pred_summary(summary_fname, trainer, tokenizer)
     # calculate results
     logging.info(f"CALCULATING RESULTS")
-    logging.info(f"{args.summary_type} :")
+    logging.info(f"{summary_fname} :")
     logging.info(f"  MSE-Full: "+str(utils.compute_mse_full(baseline_preds[0], summary_preds[0])))
     logging.info(f"       MSE: "+str(summary_preds[2]["test_mse"]))
