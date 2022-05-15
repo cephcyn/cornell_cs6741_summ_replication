@@ -124,7 +124,7 @@ if __name__ == "__main__":
     logging.info(f"generating/retrieving baseline predictions")
     baseline_preds = pred_baseline(trainer, tokenizer)
     # load in summary predictions
-    logging.info(f"generating/retrieving summary={args.summary_type} predictions")
+    logging.info(f"generating/retrieving summary={summary_fname} predictions")
     summary_preds = pred_summary(summary_fname, trainer, tokenizer)
     # calculate results
     logging.info(f"CALCULATING RESULTS")
