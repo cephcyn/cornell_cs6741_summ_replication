@@ -116,6 +116,49 @@ def generate_summary_malsampled(
         "sentence_ix": reordered_sentence_ixs,
     }
 
+# Generate a baseline-meeting malicious summary: 
+#   1. cut up reviews into sentences
+#   2. order them by how close their individual predictions are to the full baseline
+#   3. Add all of them (in the same order as original data) until summary
+#      would exceed [constants.SUMMARY_TOKEN_LIMIT] tokens (incl begin and end)
+# Takes in a dataset entry and its sentence-split line (position, sentence, tokencount, input_ids, attention_mask)
+# Returns a full dataset line
+def generate_summary_meetbaseline(
+    dataset_entry, entry_sentences, helper_sentpreds, baseline_value,
+    token_limit=constants.SUMMARY_TOKEN_LIMIT,
+):
+    # Do argument checks
+    if (len(entry_sentences)!=len(helper_sentpreds)):
+        raise ValueError(f"len(entry_sentences)={len(entry_sentences)} != len(r_helper_sentpreds)={len(helper_sentpreds)}")
+    
+    # Zip predicted scores together with source information
+    # creates entries of [(prediction gap, sentence-split tuple) ...]
+    selected_sentences = [
+        (
+            abs(baseline_value - helper_sentpreds[i]),
+            entry_sentences[i],
+        ) 
+        for i in range(len(entry_sentences))
+    ]
+    
+    # create re-ordered sentences
+    # prioritize sentences that have a minimized prediction gap
+    selected_sentences.sort(key=lambda x: x[0])
+    
+    # Convert back to standard sentence-split format
+    selected_sentences = [e[1] for e in selected_sentences]
+    
+    # cleanup sentences
+    reordered_sentences, reordered_sentence_ixs = generate_summaries.cleanup_sentences(selected_sentences, token_limit)
+
+    return {
+        "reviews": reordered_sentences,
+        "scores": dataset_entry["scores"],
+        "business": dataset_entry["business"],
+        "avg_score": dataset_entry["avg_score"],
+        "sentence_ix": reordered_sentence_ixs,
+    }
+
 if __name__ == "__main__":
     logging.basicConfig(format='%(asctime)s - %(message)s', level=logging.INFO)
     logging.info('Admin logged in')
@@ -126,15 +169,19 @@ if __name__ == "__main__":
     parser.add_argument(
         "--malicioussummary_type",
         type=str,
-        choices=['strictranking', 'sampled'],
+        choices=['strictranking', 'sampled', 'meetbaseline'],
         help="Summary type to create based on test dataset")
     parser.add_argument(
         "--seed",
         type=int,
-        help="Seed to use when summarizing (relevant to sampled-malicious)")
+        help="Seed to use when summarizing (required for malicioussummary_type=sampled)")
     
     args = parser.parse_args() 
     logging.info(f"args: {args}")
+    
+    
+    if (args.malicioussummary_type=='sampled') and (args.seed is None):
+        raise ValueError('no seed given for sampled summarization')
     
     # Load dataset that we're making summaries of
     testset = utils.load_jsonl_gz(os.path.join(
@@ -281,5 +328,25 @@ if __name__ == "__main__":
         )
         logging.info(f"DONE GENERATING SAMPLED-MALICIOUS-POSITIVE SUMMARIES, NOW SAVING TO {malsampledmax_outfile}")
         utils.dump_jsonl_gz(summaries_malsampledmax, malsampledmax_outfile)
+    elif args.malicioussummary_type == "meetbaseline":
+        # Generate a summary that tries to match the baseline prediction as much as possible
+        logging.info(f"GENERATING BASELINE-MATCHING SUMMARIES")
+        logging.info(f"mapping individual sentences into results")
+        summaries_meetbaseline = list(itertools.starmap(
+            generate_summary_meetbaseline, 
+            zip(
+                testset,
+                testset_sentences, 
+                helper_sentpredictions,
+                baselinepred[0],
+            ),
+        ))
+        meetbaseline_outfile = os.path.join(
+            constants.SUMMARY_DIR,
+            f"{constants.NUM_REVIEWS}reviews",
+            f"t{constants.SUMMARY_TOKEN_LIMIT}_meetbaseline.jsonl.gz",
+        )
+        logging.info(f"DONE GENERATING BASELINE-MATCHING SUMMARIES, NOW SAVING TO {meetbaseline_outfile}")
+        utils.dump_jsonl_gz(summaries_meetbaseline, meetbaseline_outfile)
     
     logging.info(f"Done!")

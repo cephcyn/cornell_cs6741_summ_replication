@@ -63,6 +63,8 @@ python -m generate_summaries_malicious --malicioussummary_type sampled --seed 6
 python -m generate_summaries_malicious --malicioussummary_type sampled --seed 7
 python -m generate_summaries_malicious --malicioussummary_type sampled --seed 8
 python -m generate_summaries_malicious --malicioussummary_type sampled --seed 9
+# Generate the baseline-meeting summaries
+python -m generate_summaries_malicious --malicioussummary_type meetbaseline
 ```
 
 Score them:
@@ -92,4 +94,6 @@ python -m score_summaries --summary_name t50_malsampledmin_8
 python -m score_summaries --summary_name t50_malsampledmax_8
 python -m score_summaries --summary_name t50_malsampledmin_9
 python -m score_summaries --summary_name t50_malsampledmax_9
+# Score the baseline-meeting summaries
+python -m score_summaries --summary_name t50_meetbaseline
 ```
