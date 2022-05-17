@@ -47,7 +47,7 @@ if __name__ == "__main__":
     testset_sentences_cache_fname = os.path.join(
         constants.BACKUPS_DIR, 
         f"{constants.NUM_REVIEWS}reviews", 
-        f"sentencesplit_test.jsonl.gz"
+        f"sentencesplit_test.pkl"
     )
     # check if we can load from cache
     if os.path.exists(testset_sentences_cache_fname):
@@ -55,10 +55,7 @@ if __name__ == "__main__":
         with open(testset_sentences_cache_fname, "rb") as f:
             testset_sentences = pickle.load(f)
     else:
-        logging.info(f"pre-parse backup does not exist, will export to {testset_sentences_cache_fname}")
-        testset_sentences = [split_sentences(" ".join(e["reviews"]), nlp, tokenizer) for e in testset]
-        with open(testset_sentences_cache_fname, "wb") as f:
-            pickle.dump(testset_sentences, f)
+        raise NotImplementedError('generate_summaries has the original impl, but this script relies on this cache already existing')
     
     # Generate summary now
     logging.info(f"GENERATING RANDOM SUMMARIES")

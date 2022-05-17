@@ -1,3 +1,4 @@
+import argparse
 import logging
 import os
 import itertools
@@ -10,14 +11,14 @@ import utils
 import constants
 import generate_summaries
 
-# Generate a malicious summary: 
+# Generate a strictly-ordered malicious summary: 
 #   1. cut up reviews into sentences
 #   2. order them by increasing or decreasing individual prediction
 #   3. Add all of them (in the same order as original data) until summary
 #      would exceed [constants.SUMMARY_TOKEN_LIMIT] tokens (incl begin and end)
 # Takes in a dataset entry and its sentence-split line (position, sentence, tokencount, input_ids, attention_mask)
 # Returns a full dataset line
-def generate_summary_malicioussent(
+def generate_summary_malranked(
     dataset_entry, entry_sentences, helper_sentpreds,
     maximize_pred=False,
     token_limit=constants.SUMMARY_TOKEN_LIMIT,
@@ -60,6 +61,18 @@ if __name__ == "__main__":
     logging.basicConfig(format='%(asctime)s - %(message)s', level=logging.INFO)
     logging.info('Admin logged in')
     
+    parser = argparse.ArgumentParser()
+
+    # Required parameters
+    parser.add_argument(
+        "--malicioussummary_type",
+        type=str,
+        choices=['strictranking',],
+        help="Summary type to create based on test dataset")
+    
+    args = parser.parse_args() 
+    logging.info(f"args: {args}")
+    
     # Load dataset that we're making summaries of
     testset = utils.load_jsonl_gz(os.path.join(
         constants.OUTPUT_DIR, 
@@ -81,7 +94,7 @@ if __name__ == "__main__":
     testset_sentences_cache_fname = os.path.join(
         constants.BACKUPS_DIR, 
         f"{constants.NUM_REVIEWS}reviews", 
-        f"sentencesplit_test.jsonl.gz"
+        f"sentencesplit_test.pkl"
     )
     # check if we can load from cache
     if os.path.exists(testset_sentences_cache_fname):
@@ -89,17 +102,28 @@ if __name__ == "__main__":
         with open(testset_sentences_cache_fname, "rb") as f:
             testset_sentences = pickle.load(f)
     else:
-        logging.info(f"pre-parse backup does not exist, will export to {testset_sentences_cache_fname}")
-        testset_sentences = [split_sentences(" ".join(e["reviews"]), nlp, tokenizer) for e in testset]
-        with open(testset_sentences_cache_fname, "wb") as f:
-            pickle.dump(testset_sentences, f)
+        raise NotImplementedError('generate_summaries has the original impl, but this script relies on this cache already existing')
+        
+    # initialize final predictions
+    logging.info(f"making full-review predictions")
+    baselinepred_cache_fname = os.path.join(
+        constants.SCORING_DIR, 
+        "preds_baseline.pkl",
+    )
+    # check if we can load from cache
+    if os.path.exists(baselinepred_cache_fname):
+        logging.info(f"baseline prediction backup exists, loading from {baselinepred_cache_fname}")
+        with open(baselinepred_cache_fname, "rb") as f:
+            baselinepred = pickle.load(f)
+    else:
+        raise NotImplementedError('score_summaries has the original impl, but this script relies on this cache already existing')
     
     # Retrieve helper data
     logging.info(f"generating helper per-sentence predictions")
     helper_sentpredictions_cache_fname = os.path.join(
         constants.BACKUPS_DIR, 
         f"{constants.NUM_REVIEWS}reviews", 
-        f"decsumhelperr_test.jsonl.gz"
+        f"decsumhelperr_test.pkl"
     )
     # check if we can load from cache
     if os.path.exists(helper_sentpredictions_cache_fname):
@@ -108,45 +132,47 @@ if __name__ == "__main__":
             helper_sentpredictions = pickle.load(f)
     else:
         raise NotImplementedError('generate_summaries has the original impl, but this script relies on this cache already existing')
-        
-    # Generate minimum-pred summary now
-    logging.info(f"GENERATING MALICIOUS-NEGATIVE SUMMARIES")
-    logging.info(f"mapping individual sentences into results")
-    summaries_malicioussentmin = list(itertools.starmap(
-        generate_summary_malicioussent, 
-        zip(
-            testset,
-            testset_sentences, 
-            helper_sentpredictions,
-            itertools.repeat(False),
-        ),
-    ))
-    malicioussentmin_outfile = os.path.join(
-        constants.SUMMARY_DIR,
-        f"{constants.NUM_REVIEWS}reviews",
-        f"t{constants.SUMMARY_TOKEN_LIMIT}_malicioussentmin.jsonl.gz",
-    )
-    logging.info(f"DONE GENERATING MALICIOUS-NEGATIVE SUMMARIES, NOW SAVING TO {malicioussentmin_outfile}")
-    utils.dump_jsonl_gz(summaries_malicioussentmin, malicioussentmin_outfile)
-        
-    # Generate maximum-pred summary now
-    logging.info(f"GENERATING MALICIOUS-POSITIVE SUMMARIES")
-    logging.info(f"mapping individual sentences into results")
-    summaries_malicioussentmax = list(itertools.starmap(
-        generate_summary_malicioussent, 
-        zip(
-            testset,
-            testset_sentences, 
-            helper_sentpredictions,
-            itertools.repeat(True),
-        ),
-    ))
-    malicioussentmax_outfile = os.path.join(
-        constants.SUMMARY_DIR,
-        f"{constants.NUM_REVIEWS}reviews",
-        f"t{constants.SUMMARY_TOKEN_LIMIT}_malicioussentmax.jsonl.gz",
-    )
-    logging.info(f"DONE GENERATING MALICIOUS-POSITIVE SUMMARIES, NOW SAVING TO {malicioussentmax_outfile}")
-    utils.dump_jsonl_gz(summaries_malicioussentmax, malicioussentmax_outfile)
+    
+    # Generate summary now
+    if args.malicioussummary_type == "strictranking":
+        # Generate minimum-pred summary now
+        logging.info(f"GENERATING STRICT-MALICIOUS-NEGATIVE SUMMARIES")
+        logging.info(f"mapping individual sentences into results")
+        summaries_malrankedmin = list(itertools.starmap(
+            generate_summary_malranked, 
+            zip(
+                testset,
+                testset_sentences, 
+                helper_sentpredictions,
+                itertools.repeat(False),
+            ),
+        ))
+        malrankedmin_outfile = os.path.join(
+            constants.SUMMARY_DIR,
+            f"{constants.NUM_REVIEWS}reviews",
+            f"t{constants.SUMMARY_TOKEN_LIMIT}_malrankedmin.jsonl.gz",
+        )
+        logging.info(f"DONE GENERATING STRICT-MALICIOUS-NEGATIVE SUMMARIES, NOW SAVING TO {malrankedmin_outfile}")
+        utils.dump_jsonl_gz(summaries_malrankedmin, malrankedmin_outfile)
+
+        # Generate maximum-pred summary now
+        logging.info(f"GENERATING STRICT-MALICIOUS-POSITIVE SUMMARIES")
+        logging.info(f"mapping individual sentences into results")
+        summaries_malrankedmax = list(itertools.starmap(
+            generate_summary_malranked, 
+            zip(
+                testset,
+                testset_sentences, 
+                helper_sentpredictions,
+                itertools.repeat(True),
+            ),
+        ))
+        malrankedmax_outfile = os.path.join(
+            constants.SUMMARY_DIR,
+            f"{constants.NUM_REVIEWS}reviews",
+            f"t{constants.SUMMARY_TOKEN_LIMIT}_malrankedmax.jsonl.gz",
+        )
+        logging.info(f"DONE GENERATING STRICT-MALICIOUS-POSITIVE SUMMARIES, NOW SAVING TO {malrankedmax_outfile}")
+        utils.dump_jsonl_gz(summaries_malrankedmax, malrankedmax_outfile)
     
     logging.info(f"Done!")

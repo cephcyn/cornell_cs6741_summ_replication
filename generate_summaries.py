@@ -314,7 +314,7 @@ if __name__ == "__main__":
     testset_sentences_cache_fname = os.path.join(
         constants.BACKUPS_DIR, 
         f"{constants.NUM_REVIEWS}reviews", 
-        f"sentencesplit_test.jsonl.gz"
+        f"sentencesplit_test.pkl"
     )
     # check if we can load from cache
     if os.path.exists(testset_sentences_cache_fname):
@@ -354,7 +354,7 @@ if __name__ == "__main__":
         dm_score_cache_fname = os.path.join(
             constants.BACKUPS_DIR,
             f"{constants.NUM_REVIEWS}reviews",
-            f"presummdmscore_test.jsonl.gz"
+            f"presummdmscore_test.pkl"
         )
         dm_score_helper = itertools.repeat(None)
         # check if we can load from cache
@@ -434,7 +434,7 @@ if __name__ == "__main__":
             r_helper_sentpredictions_cache_fname = os.path.join(
                 constants.BACKUPS_DIR, 
                 f"{constants.NUM_REVIEWS}reviews", 
-                f"decsumhelperr_test.jsonl.gz"
+                f"decsumhelperr_test.pkl"
             )
             # check if we can load from cache
             if os.path.exists(r_helper_sentpredictions_cache_fname):
@@ -479,7 +479,7 @@ if __name__ == "__main__":
             d_helper_sentencodings_cache_fname = os.path.join(
                 constants.BACKUPS_DIR, 
                 f"{constants.NUM_REVIEWS}reviews", 
-                f"decsumhelperd_test.jsonl.gz"
+                f"decsumhelperd_test.pkl"
             )
             # check if we can load from cache
             if os.path.exists(d_helper_sentencodings_cache_fname):
