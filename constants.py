@@ -16,6 +16,7 @@ DATASET_FNAME_REVIEW = "yelp_academic_dataset_review.json"
 
 # Dataset preprocessing hyperparameters
 NUM_REVIEWS = 50
+MAX_PREDICTION = 5
 
 # Longformer finetuning hyperparameters
 LONGFORMER_MODEL_TYPE = "allenai/longformer-base-4096"
