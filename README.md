@@ -97,3 +97,7 @@ python -m score_summaries --summary_name t50_malsampledmax_9
 # Score the baseline-meeting summaries
 python -m score_summaries --summary_name t50_meetbaseline
 ```
+
+### 4. Do some analysis!
+
+TODO this...

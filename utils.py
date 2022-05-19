@@ -1,6 +1,8 @@
 import json
 import gzip
 from sklearn.metrics import f1_score, mean_squared_error
+from scipy.stats import wasserstein_distance
+import numpy as np
 import pandas as pd
 import datasets
 
@@ -58,8 +60,24 @@ def compute_mse_metrics(pred):
 
 ### Scoring helpers
 
-# Calculate the MSE-full metric, given two matching-index sets of predictions
-def compute_mse_full(pred1, pred2):
-    diff = pred1 - pred2
-    diff_sq = diff**2
-    return sum(diff_sq)/len(diff_sq)
+# Calculate MSE, given two matching-index sets of predictions
+def compute_mse(pred1, pred2):
+    return mean_squared_error(pred1, pred2)
+    # diff = pred1 - pred2
+    # diff_sq = diff**2
+    # return sum(diff_sq)/len(diff_sq)
+
+# Calculate log(Wasserstein distance), given two lists of predictions (can be varying length)
+def compute_wasserstein(pred1, pred2):
+    return np.log(wasserstein_distance(pred1, pred2))
+
+# Calculate mean error, given two matching-index sets of predictions
+def compute_merror(predset, predbase):
+    diff = [predset[i]-predbase[i] for i in range(len(predset))]
+    return (sum(diff)/len(diff))[0]
+
+# Calculate the percentage of predictions that are above the base value, given two matching-index sets of predictions
+def compute_frachigher(predset, predbase):
+    num_higher = [predset[i]-predbase[i] for i in range(len(predset))]
+    num_higher = [(1 if e>0 else 0) for e in num_higher]
+    return sum(num_higher)/len(num_higher)

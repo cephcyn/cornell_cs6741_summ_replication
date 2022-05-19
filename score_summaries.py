@@ -129,5 +129,5 @@ if __name__ == "__main__":
     # calculate results
     logging.info(f"CALCULATING RESULTS")
     logging.info(f"{summary_fname} :")
-    logging.info(f"  MSE-Full: "+str(utils.compute_mse_full(baseline_preds[0], summary_preds[0])))
+    logging.info(f"  MSE-Full: "+str(utils.compute_mse(baseline_preds[0], summary_preds[0])))
     logging.info(f"       MSE: "+str(summary_preds[2]["test_mse"]))
