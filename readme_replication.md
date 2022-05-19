@@ -135,6 +135,7 @@ See commands below to set up the main codebase and the Python environment:
 
 ```
 # Set up a python 3.8 conda environment first
+conda create -n ENV_NAME python=3.8
 # Then clone this codebase...
 git clone https://github.com/cephcyn/cornell_cs6741_summ_replication.git
 # Install dependencies
