@@ -100,4 +100,4 @@ python -m score_summaries --summary_name t50_meetbaseline
 
 ### 4. Do some analysis!
 
-TODO this...
+Open `final_analysis.ipynb` in Jupyter.
