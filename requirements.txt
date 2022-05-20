@@ -1,11 +1,16 @@
-argparse~=1.4.0
-datasets~=2.0.0
-ipywidgets~=7.7.0
-jupyterlab~=3.3.2
-pandas~=1.4.1
-psutil~=5.9.0
-scikit-learn~=1.0.2
-seaborn~=0.11.2
-sentence-transformers~=2.2.0
-spacy~=3.2.3
-transformers~=4.17.0
+datasets
+ipywidgets
+jupyterlab
+pandas
+psutil
+scikit-learn
+sentence-transformers
+spacy
+torch==1.11.0+cu113
+transformers
+
+seaborn
+
+# package location
+--find-links https://download.pytorch.org/whl/cu113/torch_stable.html
+
